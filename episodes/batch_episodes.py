@@ -31,7 +31,7 @@ if not __package__:
 from isaac_module.cosmos_capture import validate_cosmos_videos
 
 if __package__:
-    from .scripted_pick import (
+    from .oracle_episode import (
         HOME_JOINT_DEGREES,
         DEFAULT_PROMPT,
         EpisodeConfig,
@@ -40,7 +40,7 @@ if __package__:
         resolve_pick_region,
     )
 else:
-    from scripted_pick import (
+    from oracle_episode import (
         HOME_JOINT_DEGREES,
         DEFAULT_PROMPT,
         EpisodeConfig,
