@@ -1,9 +1,14 @@
 [project]
 name = "cosmos-train"
-version = "0.1.6"
+version = "0.1.1"
 description = "Convert native Viam Isaac episodes into Cosmos Policy training inputs"
 requires-python = ">=3.11"
 dependencies = [
+    "av>=13.0.0",
+    "huggingface-hub>=0.34.0",
+    "numpy>=2.0.0",
+    "pandas>=2.0.0",
+    "pyarrow>=17.0.0",
 ]
 
 [build-system]

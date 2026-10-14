@@ -1,0 +1,23 @@
+diff --git a/cosmos_framework/callbacks/iter_speed.py b/cosmos_framework/callbacks/iter_speed.py
+index 2ef103c..3c2dbbb 100644
+--- a/cosmos_framework/callbacks/iter_speed.py
++++ b/cosmos_framework/callbacks/iter_speed.py
+@@ -362,9 +362,17 @@ class IterSpeed(EveryN):
+         )
+         vae_suffix = self._summary_suffix("vae_encode", vae_stats)
+         prepare_data_suffix = self._summary_suffix("prepare_data", prepare_data_stats)
++        loss_parts = "".join(
++            f" | {label}: {output_batch[key].detach().float().item():.4f}"
++            for label, key in (
++                ("Action loss", "flow_matching_loss_action"),
++                ("Vision loss", "flow_matching_loss_vision"),
++            )
++            if key in output_batch
++        )
+         log.info(
+             f"{iteration} : iter_speed {iter_speed:.2f} seconds per iteration | "
+-            f"Loss: {loss.detach().item():.4f}"
++            f"Loss: {loss.detach().item():.4f}{loss_parts}"
+             f"{tokens_suffix}{vae_suffix}{prepare_data_suffix}",
+         )
+

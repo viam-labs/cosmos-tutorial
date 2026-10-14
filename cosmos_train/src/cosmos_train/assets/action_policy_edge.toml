@@ -1,0 +1,43 @@
+[job]
+task = "vfm"
+experiment = "action_policy_droid_edge"
+project = "cosmos3_action"
+group = "viam_train"
+name = "lite6_native_joint_action_policy_edge"
+wandb_mode = "disabled"
+
+[model]
+precision = "bfloat16"
+
+[model.parallelism]
+data_parallel_shard_degree = -1
+data_parallel_replicate_degree = 1
+
+[model.activation_checkpointing]
+mode = "full"
+save_ops_regex = ["fmha"]
+
+[model.tokenizer]
+vae_path = "${oc.env:WAN_VAE_PATH}"
+
+[optimizer]
+lr = 2.0e-4
+
+[scheduler]
+cycle_lengths = [10]
+warm_up_steps = [1]
+
+[dataloader_train]
+max_samples_per_batch = 1
+
+[trainer]
+max_iter = 2
+logging_iter = 1
+grad_accum_iter = 1
+
+[trainer.callbacks.compile_tokenizer]
+enabled = false
+
+[checkpoint]
+load_path = "${oc.env:BASE_CHECKPOINT_PATH}"
+save_iter = 2

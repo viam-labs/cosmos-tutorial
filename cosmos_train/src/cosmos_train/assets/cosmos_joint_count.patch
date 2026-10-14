@@ -1,0 +1,79 @@
+diff --git a/cosmos_framework/data/generator/action/datasets/action_sft_dataset.py b/cosmos_framework/data/generator/action/datasets/action_sft_dataset.py
+index c0638e2..1c2d4a6 100644
+--- a/cosmos_framework/data/generator/action/datasets/action_sft_dataset.py
++++ b/cosmos_framework/data/generator/action/datasets/action_sft_dataset.py
+@@ -101,6 +101,7 @@ def get_action_droid_sft_dataset(
+     action_space: str = "joint_pos",
+     mode: str = "wam",
+     use_state: bool = True,
++    joint_count: int = 7,
+     action_normalization: str | None = None,
+     viewpoint: str = "concat_view",
+     use_image_augmentation: bool = False,
+@@ -132,6 +133,7 @@ def get_action_droid_sft_dataset(
+         action_space=action_space,
+         mode=mode,
+         use_state=use_state,
++        joint_count=joint_count,
+         action_normalization=action_normalization,
+         use_image_augmentation=use_image_augmentation,  # i4: bundles random-crop+resize+ColorJitter
+         jitter_after_compose=jitter_after_compose,
+diff --git a/cosmos_framework/data/generator/action/datasets/droid_lerobot_dataset.py b/cosmos_framework/data/generator/action/datasets/droid_lerobot_dataset.py
+index f634821..148b8c6 100644
+--- a/cosmos_framework/data/generator/action/datasets/droid_lerobot_dataset.py
++++ b/cosmos_framework/data/generator/action/datasets/droid_lerobot_dataset.py
+@@ -104,6 +104,7 @@ class DROIDLeRobotDataset(BaseActionLeRobotDataset):
+         # would shift every later argument for positional callers.
+         apply_forward_clamp: bool = False,
+         jitter_after_compose: bool = False,
++        joint_count: int = 7,
+     ) -> None:
+         """ """
+         super().__init__(
+@@ -131,6 +132,13 @@ class DROIDLeRobotDataset(BaseActionLeRobotDataset):
+         self._max_num_history_actions = max_num_history_actions
+         self._use_image_augmentation = use_image_augmentation
+         self._jitter_after_compose = jitter_after_compose
++        if (
++            isinstance(joint_count, bool)
++            or not isinstance(joint_count, int)
++            or joint_count <= 0
++        ):
++            raise ValueError(f"joint_count must be a positive integer, got {joint_count!r}")
++        self._joint_count = joint_count
+         if max_num_history_actions > 0 and action_space not in ("midtrain", "joint_pos"):
+             raise ValueError(
+                 f"max_num_history_actions is only supported with action_space='midtrain' or 'joint_pos', got {action_space!r}"
+@@ -371,10 +379,12 @@ class DROIDLeRobotDataset(BaseActionLeRobotDataset):
+ 
+     def _build_action_spec(self) -> ActionSpec:
+         """DROID: 10D ``[Pos, Rot6d, Gripper]`` for ``ee_pose``,
+-        8D ``[Joint(7), Gripper]`` for ``joint_pos``.
++        configurable ``[Joint(n), Gripper]`` for ``joint_pos``.
+         """
+         if self._action_space == "joint_pos":
+-            return build_action_spec(Joint(n=7, label="joint"), Gripper())
++            return build_action_spec(
++                Joint(n=self._joint_count, label="joint"), Gripper()
++            )
+         return build_action_spec(Pos(), Rot("rot6d"), Gripper())
+ 
+     def __getitem__(self, idx: int) -> dict[str, Any]:
+@@ -488,7 +498,10 @@ class DROIDLeRobotDataset(BaseActionLeRobotDataset):
+                 ).float()
+                 action = torch.cat([initial_state.unsqueeze(0), action], dim=0)
+         if self._action_space == "joint_pos":
+-            gripper = sample[self._action_features][-self._chunk_length :].unsqueeze(-1)
++            raw_gripper = sample[self._action_features][-self._chunk_length :]
++            gripper = (
++                raw_gripper[:, [-1]] if self._is_flat_action else raw_gripper.unsqueeze(-1)
++            )
+             if self._is_gripper_action_flipped:
+                 gripper = 1.0 - gripper
+             action = torch.cat((sample[_JOINT_ACTION_FEATURE], gripper), dim=-1).float()
+@@ -539,4 +552,4 @@ class DROIDLeRobotDataset(BaseActionLeRobotDataset):
+     @property
+     def action_dim(self) -> int:
+         """ """
+-        return 8 if self._action_space == "joint_pos" else 10
++        return self._joint_count + 1 if self._action_space == "joint_pos" else 10

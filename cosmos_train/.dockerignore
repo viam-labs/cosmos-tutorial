@@ -1,0 +1,9 @@
+.git
+.venv
+dist
+runs
+models
+datasets
+**/__pycache__
+.pytest_cache
+*.tar.gz
