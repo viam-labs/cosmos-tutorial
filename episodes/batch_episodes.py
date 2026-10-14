@@ -28,8 +28,6 @@ from viam.services.motion import MotionClient
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from isaac_module.cosmos_capture import validate_cosmos_videos
-
 if __package__:
     from .oracle_episode import (
         HOME_JOINT_DEGREES,
@@ -276,6 +274,9 @@ def _validate_cosmoswriter(
     sample_rate_hz: float,
     roles: tuple[str, ...],
 ) -> dict[str, Any]:
+    # isaac_module ships with the sim module, not this repo; only --cosmos-output needs it.
+    from isaac_module.cosmos_capture import validate_cosmos_videos
+
     return validate_cosmos_videos(
         episode_dir,
         native_sample_count,
