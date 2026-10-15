@@ -21,8 +21,6 @@ from tqdm import tqdm
 from viam.components.arm import Arm, JointPositions
 from viam.components.generic import Generic
 from viam.components.gripper import Gripper
-from viam.robot.client import RobotClient
-from viam.rpc.dial import DialOptions
 from viam.services.motion import MotionClient
 
 if not __package__:
@@ -34,6 +32,7 @@ if __package__:
         DEFAULT_PROMPT,
         EpisodeConfig,
         PickConfig,
+        connect,
         execute_pick,
         resolve_pick_region,
     )
@@ -43,6 +42,7 @@ else:
         DEFAULT_PROMPT,
         EpisodeConfig,
         PickConfig,
+        connect,
         execute_pick,
         resolve_pick_region,
     )
@@ -703,20 +703,7 @@ async def generate_run(
 
 
 async def _main(args: argparse.Namespace) -> Mapping[str, Any]:
-    api_key = os.environ.get("VIAM_API_KEY")
-    api_key_id = os.environ.get("VIAM_API_KEY_ID")
-    if bool(api_key) != bool(api_key_id):
-        raise ValueError("set both VIAM_API_KEY and VIAM_API_KEY_ID, or neither")
-    options = (
-        RobotClient.Options.with_api_key(api_key=api_key, api_key_id=api_key_id)
-        if api_key and api_key_id
-        else RobotClient.Options(dial_options=DialOptions(insecure=True))
-    )
-    if args.disable_webrtc:
-        assert options.dial_options is not None
-        options.dial_options.disable_webrtc = True
-
-    async with await RobotClient.at_address(args.address, options) as machine:
+    async with await connect(args.address, disable_webrtc=args.disable_webrtc) as machine:
         pick_region_min_m, pick_region_max_m = await resolve_pick_region(
             machine, args.arm
         )

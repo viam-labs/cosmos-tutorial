@@ -37,7 +37,7 @@ from viam.proto.service.motion import (
     OrientationConstraint,
 )
 from viam.robot.client import RobotClient
-from viam.rpc.dial import DialOptions
+from viam.rpc.dial import Credentials, DialOptions
 from viam.services.motion import MotionClient
 
 HOME_JOINT_DEGREES = (0.0, 0.0, 90.0, 0.0, 90.0, 0.0)
@@ -1337,21 +1337,36 @@ async def execute_pick(
     }
 
 
-async def _main(args: argparse.Namespace) -> Mapping[str, Any]:
-    episode = _episode_config(args)
+async def connect(address: str, *, disable_webrtc: bool = False) -> RobotClient:
+    """Connect using environment API keys, then /etc/viam.json robot credentials.
+
+    Partial environment credentials and all config/connection errors propagate;
+    a failed credential source never triggers a fallback.
+    """
     api_key = os.environ.get("VIAM_API_KEY")
     api_key_id = os.environ.get("VIAM_API_KEY_ID")
-    if not api_key or not api_key_id:
-        raise ValueError("VIAM_API_KEY and _ID required in env")
-    options = (
-        RobotClient.Options.with_api_key(api_key=api_key, api_key_id=api_key_id)
-        if api_key and api_key_id
-        else RobotClient.Options(dial_options=DialOptions(insecure=True))
-    )
-    if args.disable_webrtc:
+    if api_key or api_key_id:
+        options = RobotClient.Options.with_api_key(
+            api_key=api_key, api_key_id=api_key_id
+        )
+    else:
+        config = json.loads(Path("/etc/viam.json").read_text(encoding="utf-8"))
+        cloud = config["cloud"]
+        options = RobotClient.Options(
+            dial_options=DialOptions(
+                auth_entity=cloud["id"],
+                credentials=Credentials(type="robot-secret", payload=cloud["secret"]),
+            )
+        )
+    if disable_webrtc:
         assert options.dial_options is not None
         options.dial_options.disable_webrtc = True
-    async with await RobotClient.at_address(args.address, options) as machine:
+    return await RobotClient.at_address(address, options)
+
+
+async def _main(args: argparse.Namespace) -> Mapping[str, Any]:
+    episode = _episode_config(args)
+    async with await connect(args.address, disable_webrtc=args.disable_webrtc) as machine:
         pick_region_min_m, pick_region_max_m = await resolve_pick_region(
             machine, args.arm
         )
