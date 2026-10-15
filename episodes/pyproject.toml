@@ -15,7 +15,9 @@ dependencies = [
     # less than 26 for numpy compat
     # pyarrow conventiently enforces this at runtime not in metadata
     "pyarrow>=17.0.0,<26",
-    "toppra>=0.6.10",
+    # 0.6.9+ only ships Linux x86_64 wheels and no sdist; 0.6.3 builds from source elsewhere.
+    "toppra>=0.6.10; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "toppra==0.6.3; sys_platform != 'linux' or platform_machine != 'x86_64'",
     "tqdm>=4.70.1",
     "viam-sdk>=0.82.0",
 ]
