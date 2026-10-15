@@ -184,7 +184,7 @@ def test_parse_args_defaults_warmup_and_outcomes() -> None:
     assert args.save_iter is None
     assert args.num_workers == 4
     assert args.samples_per_gpu == 8
-    assert args.grad_accum == 2
+    assert args.grad_accum == 4
     assert args.train_lr == pytest.approx(2.5e-5)
     assert args.train_lr_end_factor == pytest.approx(0.2)
 
@@ -241,7 +241,7 @@ def test_train_command_defaults(tmp_path: Path) -> None:
     assert "dataloader_train.dataloader.num_workers=4" in cmd
     assert "dataloader_train.max_samples_per_batch=8" in cmd
     assert "dataloader_train.dataloader.batch_size=1" in cmd
-    assert "trainer.grad_accum_iter=2" in cmd
+    assert "trainer.grad_accum_iter=4" in cmd
     assert "optimizer.lr=2.5e-05" in cmd
     assert "scheduler.f_min=[0.2]" in cmd
     assert "dataloader_train.dataloader.datasets.droid.dataset.fps=15.0" in cmd

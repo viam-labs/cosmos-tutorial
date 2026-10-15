@@ -55,7 +55,7 @@ Optimization / dataloader:
 | --------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `train_lr`            | `2.5e-5` | base learning rate (`optimizer.lr`); tuned for a batch of 64–128                                                                                           |
 | `train_lr_end_factor` | `0.2`    | final LR as a fraction of peak (`scheduler.f_min`); linear decay after warmup                                                                              |
-| `grad_accum`          | `2`      | gradient accumulation steps; set it so the batch is 64–128 (see Tuning)                                                                                    |
+| `grad_accum`          | `4`      | gradient accumulation steps; set it so the batch is 64–128 (see Tuning). The default gives 64 on 2 GPUs                                                    |
 | `num_workers`         | `4`      | dataloader workers per GPU; each batch mixes samples from at most this many episodes, so up to `samples_per_gpu` helps. More workers need more CPU and RAM |
 | `samples_per_gpu`     | `8`      | samples per GPU per step; lower it and raise `grad_accum` if GPU memory runs out                                                                           |
 
