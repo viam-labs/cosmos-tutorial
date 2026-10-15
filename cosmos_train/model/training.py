@@ -69,7 +69,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--grad_accum",
         type=int,
-        default=2,
+        default=4,
         help="gradient accumulation steps",
     )
     parser.add_argument(

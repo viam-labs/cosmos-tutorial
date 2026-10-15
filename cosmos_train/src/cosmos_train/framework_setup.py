@@ -237,7 +237,7 @@ def train_command(
     save_iter: int | None = None,
     num_workers: int = 4,
     samples_per_gpu: int = 8,
-    grad_accum: int | None = 2,
+    grad_accum: int | None = 4,
     train_lr: float | None = 2.5e-5,
     train_lr_end_factor: float | None = 0.2,
 ) -> list[str]:
