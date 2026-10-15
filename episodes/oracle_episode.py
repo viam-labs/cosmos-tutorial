@@ -1419,8 +1419,8 @@ def main() -> int:
     parser.add_argument("--fixed-camera", default="scene-cam")
     parser.add_argument(
         "--fixed-camera-2",
-        default="",
-        help="optional second fixed camera component; empty disables it",
+        default="third-cam",
+        help="second fixed camera component; pass an empty string to record without it",
     )
     parser.add_argument("--wrist-camera", default="wrist-cam")
     parser.add_argument(
