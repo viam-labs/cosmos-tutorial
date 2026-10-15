@@ -960,6 +960,12 @@ async def execute_pick(
         90.0 if math.isclose(config.prop_width_m, config.prop_depth_m) else 180.0,
     )
     grasp_height_m = grasp_height(seed) if config.noise else config.grasp_height_m
+    pre_grab_task = PickTask(
+        prop=config.prop_name,
+        initial_z_m=initial_z_m,
+        minimum_lift_m=config.minimum_lift_m,
+        prop_height_m=config.prop_height_m,
+    )
     exact_center_position = (x_m, y_m, initial_z_m + config.approach_clearance_m)
     center_position = (
         sample_center_position(seed, exact_center_position)
@@ -1211,6 +1217,11 @@ async def execute_pick(
                     constraints=LINEAR_PICK_CONSTRAINTS,
                 )
             await mark_stage("Close the gripper and lift the block")
+        # One sample at the grasp pose so oracle episodes record the "reached"
+        # stage the same way eval_policy.py observes it while polling.
+        history: list[Snapshot] = await sample_state(
+            world, gripper, motion, config, pre_grab_task, sim_clock, count=1
+        )
         with timer.phase("grab"):
             grab_commanded = bool(await gripper.grab())
         holding_meta: Mapping[str, Any] = {}
@@ -1269,11 +1280,10 @@ async def execute_pick(
             minimum_lift_m=minimum_lift_m,
             prop_height_m=config.prop_height_m,
         )
-        history: list[Snapshot] = []
         verdict = None
         if grabbed:
             with timer.phase("lift_check"):
-                history = await sample_state(
+                history += await sample_state(
                     world, gripper, motion, config, task, sim_clock
                 )
                 holding = history[-1].holding

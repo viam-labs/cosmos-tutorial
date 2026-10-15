@@ -24,6 +24,8 @@ Vec3 = tuple[float, float, float]
 # marker for partial credit, not the success test.
 REACH_XY_M = 0.03
 REACH_ABOVE_M = 0.10
+# The gripper frame is the TCP; at grasp it can sit a few mm below the block center.
+REACH_BELOW_M = 0.02
 # A final-state predicate must hold for this many consecutive samples so a
 # bouncing or slipping block is not scored as success (SimplerEnv uses 5 frames).
 DEFAULT_HOLD_SAMPLES = 3
@@ -162,7 +164,7 @@ class PickTask:
         block = self._block(s)
         return (
             xy_distance(s.gripper_position, block) <= self.reach_xy_m
-            and 0.0 <= s.gripper_position[2] - block[2] <= self.reach_above_m
+            and -REACH_BELOW_M <= s.gripper_position[2] - block[2] <= self.reach_above_m
         )
 
     def grasped(self, s: Snapshot) -> bool:
