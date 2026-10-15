@@ -703,7 +703,11 @@ async def generate_run(
 
 
 async def _main(args: argparse.Namespace) -> Mapping[str, Any]:
-    async with await connect(args.address, disable_webrtc=args.disable_webrtc) as machine:
+    async with await connect(
+        args.address,
+        viam_config_path=args.viam_config,
+        disable_webrtc=args.disable_webrtc,
+    ) as machine:
         pick_region_min_m, pick_region_max_m = await resolve_pick_region(
             machine, args.arm
         )
@@ -843,6 +847,12 @@ def _parse_args() -> argparse.Namespace:
             "give up on an episode after this many seconds, close its capture, "
             "and continue (0 = no limit)"
         ),
+    )
+    parser.add_argument(
+        "--viam-config",
+        type=Path,
+        default=Path("/etc/viam.json"),
+        help="path to viam.json used when API key environment variables are unset",
     )
     parser.add_argument("--disable-webrtc", action="store_true")
     parser.add_argument(

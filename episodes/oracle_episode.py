@@ -1337,8 +1337,13 @@ async def execute_pick(
     }
 
 
-async def connect(address: str, *, disable_webrtc: bool = False) -> RobotClient:
-    """Connect using environment API keys, then /etc/viam.json robot credentials.
+async def connect(
+    address: str,
+    *,
+    viam_config_path: Path = Path("/etc/viam.json"),
+    disable_webrtc: bool = False,
+) -> RobotClient:
+    """Connect using environment API keys, then robot credentials from viam_config_path.
 
     Partial environment credentials and all config/connection errors propagate;
     a failed credential source never triggers a fallback.
@@ -1350,7 +1355,7 @@ async def connect(address: str, *, disable_webrtc: bool = False) -> RobotClient:
             api_key=api_key, api_key_id=api_key_id
         )
     else:
-        config = json.loads(Path("/etc/viam.json").read_text(encoding="utf-8"))
+        config = json.loads(viam_config_path.read_text(encoding="utf-8"))
         cloud = config["cloud"]
         options = RobotClient.Options(
             dial_options=DialOptions(
@@ -1366,7 +1371,11 @@ async def connect(address: str, *, disable_webrtc: bool = False) -> RobotClient:
 
 async def _main(args: argparse.Namespace) -> Mapping[str, Any]:
     episode = _episode_config(args)
-    async with await connect(args.address, disable_webrtc=args.disable_webrtc) as machine:
+    async with await connect(
+        args.address,
+        viam_config_path=args.viam_config,
+        disable_webrtc=args.disable_webrtc,
+    ) as machine:
         pick_region_min_m, pick_region_max_m = await resolve_pick_region(
             machine, args.arm
         )
@@ -1414,6 +1423,12 @@ def main() -> int:
         help="optional second fixed camera component; empty disables it",
     )
     parser.add_argument("--wrist-camera", default="wrist-cam")
+    parser.add_argument(
+        "--viam-config",
+        type=Path,
+        default=Path("/etc/viam.json"),
+        help="path to viam.json used when API key environment variables are unset",
+    )
     parser.add_argument(
         "--disable-webrtc",
         action="store_true",
