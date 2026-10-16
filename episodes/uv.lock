@@ -158,7 +158,7 @@ wheels = [
 [[package]]
 name = "arm-policy"
 version = "0.1.0"
-source = { git = "https://github.com/viam-labs/arm-policy.git#82804d87f7ce1dba94a284ea02bc68705c22a3c0" }
+source = { git = "https://github.com/viam-labs/arm-policy?tag=0.0.8#d3fc92f1c7d03472ff2355dfe435632a6c44729d" }
 dependencies = [
     { name = "msgpack" },
     { name = "numpy" },
@@ -3080,7 +3080,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "arm-policy", git = "https://github.com/viam-labs/arm-policy.git" },
+    { name = "arm-policy", git = "https://github.com/viam-labs/arm-policy?tag=0.0.8" },
     { name = "av", specifier = ">=13.0.0" },
     { name = "isaacsim", extras = ["all", "extscache"], marker = "extra == 'full'", specifier = "==5.0.0" },
     { name = "numpy", specifier = ">=1.26.0" },

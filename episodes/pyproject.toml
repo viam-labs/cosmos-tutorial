@@ -46,7 +46,7 @@ explicit = true
 [tool.uv.sources]
 isaacsim-code-editor = { index = "nvidia" }
 isaacsim-kernel = { index = "nvidia" }
-arm-policy = { git = "https://github.com/viam-labs/arm-policy.git" }
+arm-policy = { git = "https://github.com/viam-labs/arm-policy", tag = "0.0.8" }
 
 [dependency-groups]
 dev = [
