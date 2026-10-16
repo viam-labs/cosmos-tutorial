@@ -24,7 +24,8 @@ viam training-script upload --path dist/cosmos_train-<version>.tar.gz \
     --org-id <org-id> --script-name cosmos-edge-lite6 --framework pytorch --version <version>
 viam train submit custom from-registry --dataset-id <dataset-id> --org-id <org-id> \
     --model-name cosmos-edge-lite6 --script-name <namespace>:cosmos-edge-lite6 \
-    --version <version> --container-id <container-id> \
+    --version <version> --container-id 08d4a43e-f7c2-4463-83ef-67f836ac5ae9
+ \
     --args max_iter=2500,dataset_id=<dataset-id>
 ```
 
