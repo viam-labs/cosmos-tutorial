@@ -1,0 +1,5 @@
+# don't commit credentials
+viam.json
+
+__pycache__/
+runs/

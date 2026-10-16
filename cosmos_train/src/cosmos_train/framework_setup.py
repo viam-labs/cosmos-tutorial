@@ -128,6 +128,20 @@ def patch_framework_for_edge(root: Path, *, fps: float) -> None:
     else:
         raise RuntimeError("pinned DROID dataset factory changed")
 
+    # Leave the idle-frame count out of training prompts. It is computed from the
+    # chunk's future actions, which a policy server cannot know, so serving would
+    # have to guess it (a constant 0 made the policy skip grasps).
+    formatter = package / "data/generator/action/utils/json_formatter.py"
+    needle = '        action_entry["idle_frame"] = self._get_idle_frame_info(data_dict)\n'
+    replacement = "        # idle_frame omitted: it describes the future chunk (cosmos-train)\n"
+    text = formatter.read_text()
+    if replacement in text:
+        pass
+    elif needle in text:
+        formatter.write_text(text.replace(needle, replacement, 1))
+    else:
+        raise RuntimeError("pinned action prompt formatter changed")
+
 
 def download_checkpoints() -> tuple[Path, Path]:
     """Fetch the ungated base checkpoint and VAE anonymously into the HF cache (HF_HOME).
@@ -237,7 +251,7 @@ def train_command(
     save_iter: int | None = None,
     num_workers: int = 4,
     samples_per_gpu: int = 8,
-    grad_accum: int | None = 2,
+    grad_accum: int | None = 4,
     train_lr: float | None = 2.5e-5,
     train_lr_end_factor: float | None = 0.2,
 ) -> list[str]:

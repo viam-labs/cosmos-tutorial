@@ -184,7 +184,7 @@ def test_parse_args_defaults_warmup_and_outcomes() -> None:
     assert args.save_iter is None
     assert args.num_workers == 4
     assert args.samples_per_gpu == 8
-    assert args.grad_accum == 2
+    assert args.grad_accum == 4
     assert args.train_lr == pytest.approx(2.5e-5)
     assert args.train_lr_end_factor == pytest.approx(0.2)
 
@@ -241,7 +241,7 @@ def test_train_command_defaults(tmp_path: Path) -> None:
     assert "dataloader_train.dataloader.num_workers=4" in cmd
     assert "dataloader_train.max_samples_per_batch=8" in cmd
     assert "dataloader_train.dataloader.batch_size=1" in cmd
-    assert "trainer.grad_accum_iter=2" in cmd
+    assert "trainer.grad_accum_iter=4" in cmd
     assert "optimizer.lr=2.5e-05" in cmd
     assert "scheduler.f_min=[0.2]" in cmd
     assert "dataloader_train.dataloader.datasets.droid.dataset.fps=15.0" in cmd
@@ -342,7 +342,7 @@ def test_ingest_rejects_episode_id_with_path_separators(tmp_path: Path) -> None:
 
 
 def _fake_framework(root: Path) -> Path:
-    """The four files patch_framework_for_edge edits, holding only the pinned text it looks for."""
+    """The files patch_framework_for_edge edits, holding only the pinned text it looks for."""
     package = root / "cosmos_framework"
     posttrain = package / "configs/base/experiment/action/posttrain_config"
     posttrain.mkdir(parents=True)
@@ -367,6 +367,11 @@ def _fake_framework(root: Path) -> Path:
     (dataset / "action_sft_dataset.py").write_text(
         "    dataset: Dataset = DROIDLeRobotDataset(root=root, **shard_kwargs)\n"
     )
+    utils = package / "data/generator/action/utils"
+    utils.mkdir(parents=True)
+    (utils / "json_formatter.py").write_text(
+        '        action_entry["idle_frame"] = self._get_idle_frame_info(data_dict)\n'
+    )
     return package / "scripts/export_model.py"
 
 
@@ -379,3 +384,15 @@ def test_patch_framework_records_the_dataset_fps_in_the_export(tmp_path: Path) -
     text = exporter.read_text()
     assert text.count('"conditioning_fps": 15.0') == 1
     assert "_build_edge_policy_metadata" not in text
+
+
+def test_patch_framework_drops_the_idle_frame_prompt_field(tmp_path: Path) -> None:
+    _fake_framework(tmp_path)
+    formatter = (
+        tmp_path / "cosmos_framework/data/generator/action/utils/json_formatter.py"
+    )
+
+    patch_framework_for_edge(tmp_path, fps=15.0)
+    patch_framework_for_edge(tmp_path, fps=15.0)  # idempotent
+
+    assert "_get_idle_frame_info" not in formatter.read_text()
