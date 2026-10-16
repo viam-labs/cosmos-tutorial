@@ -18,6 +18,25 @@ portable export into the job's model output directory. The only external
 download is the public `nvidia/Cosmos3-Edge` base checkpoint and the Wan2.2 VAE,
 both anonymous.
 
+To train with the public version of this script:
+
+```sh
+MODEL_NAME=cosmos-edge-lite6 # up to you
+ITERS=10 # scale this up as you verify runnability
+CONTAINER_ID=08d4a43e-f7c2-4463-83ef-67f836ac5ae9 # this is the common base container
+ORG_ID=xxxx # get this from the web UI (your org -> settings) or from running `viam org list` on the CLI
+DATASET_ID=xxxx # you can find this in the Data -> Datasets section of the UI, or via CLI. It's 'Copy Dataset ID' in the 3-dot menu
+
+viam train submit custom from-registry --dataset-id $DATASET_ID --org-id $ORG_ID \
+    --model-name $MODEL_NAME --script-name 6efeb7e5-91aa-4187-8ed3-e84764726078:cosmos-edge-7d \
+    --version 0.1.1 --container-id $CONTAINER_ID \
+    --args max_iter=$ITERS,dataset_id=$DATASET_ID
+
+# you can view your in-progress job at https://app.viam.com/models
+```
+
+If you've modified the action space of your episodes (i.e. non 6dof arm, extra arm, extra dimensions generally), you'll need to edit this repo to support that change, and then submit that custom version of the training script:
+
 ```sh
 uv build --sdist                                    # dist/cosmos_train-<version>.tar.gz
 viam training-script upload --path dist/cosmos_train-<version>.tar.gz \
