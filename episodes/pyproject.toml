@@ -20,6 +20,7 @@ dependencies = [
     "toppra==0.6.3; sys_platform != 'linux' or platform_machine != 'x86_64'",
     "tqdm>=4.70.1",
     "viam-sdk>=0.82.0",
+    "arm-policy",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ explicit = true
 [tool.uv.sources]
 isaacsim-code-editor = { index = "nvidia" }
 isaacsim-kernel = { index = "nvidia" }
+arm-policy = { git = "https://github.com/viam-labs/arm-policy.git" }
 
 [dependency-groups]
 dev = [
