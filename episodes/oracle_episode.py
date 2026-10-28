@@ -14,7 +14,7 @@ import random
 import time
 from contextlib import contextmanager
 from datetime import timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
@@ -39,6 +39,23 @@ from viam.proto.service.motion import (
 from viam.robot.client import RobotClient
 from viam.rpc.dial import Credentials, DialOptions
 from viam.services.motion import MotionClient
+
+if __package__:
+    from .task_check import (
+        PLACE_PAD_HEIGHT_M,
+        PLACE_PAD_WIDTH_M,
+        PickTask,
+        Snapshot,
+        snapshot,
+    )
+else:
+    from task_check import (
+        PLACE_PAD_HEIGHT_M,
+        PLACE_PAD_WIDTH_M,
+        PickTask,
+        Snapshot,
+        snapshot,
+    )
 
 HOME_JOINT_DEGREES = (0.0, 0.0, 90.0, 0.0, 90.0, 0.0)
 PICK_REGION_MIN_ARM_M = (0.25, -0.12, 0.0)
@@ -110,9 +127,7 @@ PLACE_STAGE_PROMPTS = [
     "lift the gripper away from the block",
     "hold still",
 ]
-# The pad is a flat square kept axis-aligned so "inside the pad" is a box check.
-PLACE_PAD_WIDTH_M = 0.08
-PLACE_PAD_HEIGHT_M = 0.002
+# Pad geometry and the "block on pad" test live in task_check.py, shared with eval.
 # Pad center to block center: the 4 cm pad half-width plus the block's ~2.2 cm
 # half-diagonal plus a gap, so the block starts off the pad. 10 cm left no room
 # in the 13 cm-deep pick region for ~17% of seeds.
@@ -120,8 +135,9 @@ PLACE_MIN_SEPARATION_M = 0.07
 # The block is let go this far above the pad instead of pressed into it.
 PLACE_RELEASE_CLEARANCE_M = 0.005
 PLACE_RELEASE_SETTLE_SEC = 0.25
-# A placed block must rest within this height of sitting flat on the pad.
-PLACE_REST_TOLERANCE_M = 0.01
+# Simulator seconds between the consecutive state samples a success check
+# must pass (task_check.DEFAULT_HOLD_SAMPLES of them).
+HOLD_SAMPLE_INTERVAL_SEC = 0.1
 
 
 def stage_prompts(target_label: str = "", place_label: str = "") -> list[str]:
@@ -847,19 +863,32 @@ def sample_place_pose(
     )
 
 
-def block_on_pad(
-    block_position: Sequence[float],
-    pad_position: Sequence[float],
-    block_height_m: float,
-) -> bool:
-    """True when the block's center is over the pad and it rests flat on it."""
-    half = PLACE_PAD_WIDTH_M / 2.0
-    rest_z = pad_position[2] + PLACE_PAD_HEIGHT_M / 2.0 + block_height_m / 2.0
-    return (
-        abs(block_position[0] - pad_position[0]) <= half
-        and abs(block_position[1] - pad_position[1]) <= half
-        and abs(block_position[2] - rest_z) <= PLACE_REST_TOLERANCE_M
-    )
+async def sample_state(
+    world: Any,
+    gripper: Any,
+    motion: Any,
+    config: PickConfig,
+    task: PickTask,
+    sim_clock: _ElapsedClock,
+    count: int | None = None,
+) -> list[Snapshot]:
+    """Take `count` (default task.hold_samples) state snapshots spaced by
+    HOLD_SAMPLE_INTERVAL_SEC of simulator time, for the task checker."""
+    history: list[Snapshot] = []
+    for index in range(task.hold_samples if count is None else count):
+        if index:
+            await _wait_sim_duration(world, HOLD_SAMPLE_INTERVAL_SEC)
+        t_sec = (
+            float(await sim_clock.elapsed(check_playing=False))
+            if sim_clock.simulated
+            else time.monotonic()
+        )
+        history.append(
+            await snapshot(
+                world, gripper, motion, config.gripper_name, [config.prop_name], t_sec
+            )
+        )
+    return history
 
 
 async def execute_pick(
@@ -931,6 +960,12 @@ async def execute_pick(
         90.0 if math.isclose(config.prop_width_m, config.prop_depth_m) else 180.0,
     )
     grasp_height_m = grasp_height(seed) if config.noise else config.grasp_height_m
+    pre_grab_task = PickTask(
+        prop=config.prop_name,
+        initial_z_m=initial_z_m,
+        minimum_lift_m=config.minimum_lift_m,
+        prop_height_m=config.prop_height_m,
+    )
     exact_center_position = (x_m, y_m, initial_z_m + config.approach_clearance_m)
     center_position = (
         sample_center_position(seed, exact_center_position)
@@ -1182,6 +1217,11 @@ async def execute_pick(
                     constraints=LINEAR_PICK_CONSTRAINTS,
                 )
             await mark_stage("Close the gripper and lift the block")
+        # One sample at the grasp pose so oracle episodes record the "reached"
+        # stage the same way eval_policy.py observes it while polling.
+        history: list[Snapshot] = await sample_state(
+            world, gripper, motion, config, pre_grab_task, sim_clock, count=1
+        )
         with timer.phase("grab"):
             grab_commanded = bool(await gripper.grab())
         holding_meta: Mapping[str, Any] = {}
@@ -1228,20 +1268,29 @@ async def execute_pick(
                 "lift" if grabbed else "retreat", ascent_trajectory, plan_sec
             )
 
-        if grabbed:
-            with timer.phase("lift_check"):
-                status = await gripper.is_holding_something()
-                holding = bool(status.is_holding_something)
-                holding_meta = dict(status.meta)
-                measured = await world.do_command(
-                    {"command": "get_prop_pose", "prop": config.prop_name}
-                )
-                lifted_z_m = float(measured["pose"]["position"][2])
-
         minimum_lift_m = config.minimum_lift_m
         if config.grip_only:
             minimum_lift_m = max(0.0, config.grip_lift_m - GRIP_ONLY_LIFT_TOLERANCE_M)
-        success = grabbed and holding and lifted_z_m >= initial_z_m + minimum_lift_m
+        # The outcome is decided by the shared task checker over sampled sim
+        # state, never by the moves this script commanded; eval_policy.py
+        # scores the trained policy with the same checker.
+        task = PickTask(
+            prop=config.prop_name,
+            initial_z_m=initial_z_m,
+            minimum_lift_m=minimum_lift_m,
+            prop_height_m=config.prop_height_m,
+        )
+        verdict = None
+        if grabbed:
+            with timer.phase("lift_check"):
+                history += await sample_state(
+                    world, gripper, motion, config, task, sim_clock
+                )
+                holding = history[-1].holding
+                holding_meta = dict(history[-1].gripper_meta)
+                lifted_z_m = history[-1].props[config.prop_name][2]
+            verdict = task.check(history)
+        success = verdict is not None and verdict.success
         if success and pad_position is not None and not config.grip_only:
             # TCP height above the block's bottom face, measured after the lift
             # so any slip in the grasp is accounted for.
@@ -1280,6 +1329,10 @@ async def execute_pick(
                     destination, constraints, minimum_duration, start_stage=stage
                 )
                 await run_trajectory(f"place-{index}", trajectory, plan_sec)
+                if index == 0:
+                    history += await sample_state(
+                        world, gripper, motion, config, task, sim_clock, count=1
+                    )
             with timer.phase("release"):
                 await gripper.open()
                 timer.waits["release"] = await _wait_for_gripper_settled(
@@ -1294,16 +1347,14 @@ async def execute_pick(
                 start_stage=stages[5],
             )
             await run_trajectory("place-retreat", trajectory, plan_sec)
+            task = replace(task, pad_position_m=tuple(pad_position))
             with timer.phase("place_check"):
-                status = await gripper.is_holding_something()
-                holding = bool(status.is_holding_something)
-                measured = await world.do_command(
-                    {"command": "get_prop_pose", "prop": config.prop_name}
+                history += await sample_state(
+                    world, gripper, motion, config, task, sim_clock
                 )
-                placed_position = [float(v) for v in measured["pose"]["position"]]
-            success = not holding and block_on_pad(
-                placed_position, pad_position, config.prop_height_m
-            )
+                holding = history[-1].holding
+            verdict = task.check(history)
+            success = verdict.success
         outcome = "success" if success else "failure"
         if success and not config.grip_only:
             await mark_stage(stages[-1])
@@ -1332,6 +1383,8 @@ async def execute_pick(
         "holding_after_lift": holding,
         "lifted_z_m": lifted_z_m,
         "holding_meta": holding_meta,
+        "task": task.to_dict(),
+        "verdict": verdict.to_dict() if verdict is not None else None,
         "capture": capture,
         "timing": timing,
     }
