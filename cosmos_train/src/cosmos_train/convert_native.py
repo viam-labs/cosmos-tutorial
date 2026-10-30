@@ -21,6 +21,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 SCHEMA_VERSION = 3
+IMPLICIT_STAGE_TASK = "base"
 RUN_SCHEMA_VERSIONS = (4,)
 VIDEO_KEYS = {
     "fixed": "observation.images.fixed",
@@ -216,8 +217,17 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     ):
         raise ValueError(f"{path}: sample_count must be a positive integer")
     stages = manifest.get("stages")
-    if not isinstance(stages, list) or not stages:
-        raise ValueError(f"{path}: stages must be a non-empty list")
+    if stages is None or stages == []:
+        stages = [
+            {
+                "task": IMPLICIT_STAGE_TASK,
+                "start_frame": 0,
+                "end_frame_exclusive": sample_count,
+            }
+        ]
+        manifest["stages"] = stages
+    elif not isinstance(stages, list):
+        raise ValueError(f"{path}: stages must be a list")
     expected_start = 0
     stage_tasks: set[str] = set()
     for stage_index, stage in enumerate(stages):

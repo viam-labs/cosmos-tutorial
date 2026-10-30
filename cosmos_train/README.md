@@ -18,6 +18,10 @@ portable export into the job's model output directory. The only external
 download is the public `nvidia/Cosmos3-Edge` base checkpoint and the Wan2.2 VAE,
 both anonymous.
 
+Native manifests may omit `stages` or provide an empty list when capture does not
+mark subtask boundaries. Conversion normalizes those episodes to one `base` stage
+spanning every sample; normal training still uses the manifest's overall task.
+
 To train with the public version of this script:
 
 ```sh
