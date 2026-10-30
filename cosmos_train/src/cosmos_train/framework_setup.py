@@ -267,6 +267,7 @@ def train_command(
         raise ValueError("train_lr must be positive")
     if train_lr_end_factor is not None and not 0.0 <= train_lr_end_factor <= 1.0:
         raise ValueError("train_lr_end_factor must be between 0 and 1")
+    wandb_mode = "online" if os.environ.get("WANDB_API_KEY") else "disabled"
     checkpoint_save_iter = save_iter if save_iter is not None else max_iter
     args = [
         str(framework_root / ".venv/bin/torchrun"),
@@ -275,6 +276,7 @@ def train_command(
         "cosmos_framework.scripts.train",
         f"--sft-toml={SFT_TOML}",
         "--",
+        f"job.wandb_mode={wandb_mode}",
         f"trainer.max_iter={max_iter}",
         f"checkpoint.save_iter={checkpoint_save_iter}",
         f"scheduler.cycle_lengths=[{max_iter}]",

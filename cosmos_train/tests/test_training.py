@@ -247,6 +247,30 @@ def test_train_command_defaults(tmp_path: Path) -> None:
     assert "dataloader_train.dataloader.datasets.droid.dataset.fps=15.0" in cmd
 
 
+@pytest.mark.parametrize(
+    ("api_key", "expected"),
+    [(None, "disabled"), ("secret", "online"), ("", "disabled")],
+)
+def test_train_command_sets_wandb_mode_from_nonempty_api_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    api_key: str | None,
+    expected: str,
+) -> None:
+    if api_key is None:
+        monkeypatch.delenv("WANDB_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("WANDB_API_KEY", api_key)
+    cmd = train_command(
+        tmp_path,
+        gpus=2,
+        max_iter=100,
+        warmup_steps=5,
+        fps=15.0,
+    )
+    assert f"job.wandb_mode={expected}" in cmd
+
+
 def test_train_command_opt_out_overrides(tmp_path: Path) -> None:
     cmd = train_command(
         tmp_path,
