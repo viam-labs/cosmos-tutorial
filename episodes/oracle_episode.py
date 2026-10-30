@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import math
 import os
 import random
@@ -40,6 +41,8 @@ from viam.robot.client import RobotClient
 from viam.rpc.dial import Credentials, DialOptions
 from viam.services.motion import MotionClient
 
+
+LOGGER = logging.getLogger(__name__)
 HOME_JOINT_DEGREES = (0.0, 0.0, 90.0, 0.0, 90.0, 0.0)
 PICK_REGION_MIN_ARM_M = (0.25, -0.12, 0.0)
 PICK_REGION_MAX_ARM_M = (0.38, 0.12, 0.0)
@@ -90,26 +93,13 @@ CENTER_MOVE_CONSTRAINTS = Constraints(
 
 
 DEFAULT_PROMPT = "pick up the block"
+DEFAULT_SUBTASK_PROMPT = "base"
 
 
-STAGE_PROMPTS = [
-    "center the gripper above the block",
-    "move the gripper into position close above the block. in the wrist camera the block should be near the bottom center",
-    "descend, grip, wait for a firm grip, and lift the block",
-    # inference doesn't have a completion signal, but we can detect this hover in code and use that as a stop condition
-    "hold still",
-]
 # A second block placed for target selection stays at least this far (center to
 # center) from the target, so the open gripper doesn't touch it.
 DISTRACTOR_MIN_SEPARATION_M = 0.08
 DISTRACTOR_PLACEMENT_TRIES = 64
-# Place stages replace the final "hold still" of a pick; {pad} is the pad label.
-PLACE_STAGE_PROMPTS = [
-    "carry the block above the {pad} pad",
-    "lower the block onto the {pad} pad and open the gripper",
-    "lift the gripper away from the block",
-    "hold still",
-]
 # The pad is a flat square kept axis-aligned so "inside the pad" is a box check.
 PLACE_PAD_WIDTH_M = 0.08
 PLACE_PAD_HEIGHT_M = 0.002
@@ -124,19 +114,6 @@ PLACE_RELEASE_SETTLE_SEC = 0.25
 PLACE_REST_TOLERANCE_M = 0.01
 
 
-def stage_prompts(target_label: str = "", place_label: str = "") -> list[str]:
-    """Stage texts, naming the target block (e.g. "the red block") when labeled,
-    and ending with the place stages when a pad label is given."""
-    prompts = list(STAGE_PROMPTS)
-    if place_label:
-        prompts = prompts[:-1] + [
-            prompt.format(pad=place_label) for prompt in PLACE_STAGE_PROMPTS
-        ]
-    if not target_label:
-        return prompts
-    return [
-        prompt.replace("the block", f"the {target_label} block") for prompt in prompts
-    ]
 
 
 def _yaw_to_quaternion_wxyz(yaw_deg: float) -> tuple[float, float, float, float]:
@@ -264,14 +241,10 @@ class PickConfig:
     prop_width_m: float = PICK_BLOCK_WIDTH_M
     prop_depth_m: float = PICK_BLOCK_DEPTH_M
     prop_height_m: float = PICK_BLOCK_HEIGHT_M
-    # Optional second block to place alongside the target, and the target's
-    # label (e.g. "red") used in stage texts.
+    # Optional second block placed alongside the target.
     distractor_prop: str | None = None
-    target_label: str = ""
-    # Optional flat pad to put the block on after lifting it, and its label
-    # (e.g. "green") used in stage texts.
+    # Optional flat pad to put the block on after lifting it.
     place_prop: str | None = None
-    place_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -314,6 +287,41 @@ def _episode_config(args: argparse.Namespace) -> EpisodeConfig | None:
             str(cosmos_episode_dir) if cosmos_episode_dir is not None else None
         ),
     )
+
+async def _stop_episode_capture(
+    world: Any, command: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """Finish capture even when the caller is being cancelled."""
+    stop_task = asyncio.create_task(world.do_command(dict(command)))
+    try:
+        return await asyncio.shield(stop_task)
+    except asyncio.CancelledError:
+        await stop_task
+        raise
+
+
+async def _start_episode_capture(world: Any, command: Mapping[str, Any]) -> None:
+    """Start capture and its base stage with cancellation-safe rollback."""
+    start_task = asyncio.create_task(world.do_command(dict(command)))
+    started = False
+    try:
+        await asyncio.shield(start_task)
+        started = True
+        await world.do_command(
+            {"command": "mark_episode_stage", "task": DEFAULT_SUBTASK_PROMPT}
+        )
+    except BaseException:
+        if not started:
+            try:
+                await start_task
+                started = True
+            except BaseException:
+                pass
+        if started:
+            await _stop_episode_capture(
+                world, {"command": "stop_episode", "outcome": "incomplete"}
+            )
+        raise
 
 
 def _yaw_degrees(rotation_wxyz: list[float]) -> float:
@@ -924,7 +932,6 @@ async def execute_pick(
                 "orientation_wxyz": list(pad_orientation),
             }
         )
-    stages = stage_prompts(config.target_label, config.place_label)
     x_m, y_m, initial_z_m = (float(value) for value in target["position"])
     yaw_deg = _nearest_symmetric_yaw_degrees(
         _yaw_degrees(target["orientation_wxyz"]) + config.yaw_offset_deg,
@@ -961,8 +968,8 @@ async def execute_pick(
 
     center_waypoints = [center]
     descent_waypoints = [
-        (pre_grasp, MIN_SUBTASK_DURATION_SEC, False),
-        (grasp, FINAL_DESCENT_MIN_DURATION_SEC, True),
+        (pre_grasp, MIN_SUBTASK_DURATION_SEC),
+        (grasp, FINAL_DESCENT_MIN_DURATION_SEC),
     ]
     if config.noise and not config.grip_only:
         start = await motion.get_pose(config.gripper_name, "world")
@@ -1010,20 +1017,17 @@ async def execute_pick(
             (
                 _destination(*descent_midpoint, yaw_deg),
                 APPROACH_WAYPOINT_MIN_DURATION_SEC,
-                False,
             ),
             (
                 _destination(*descent_arrival_position, descent_arrival_yaw),
                 APPROACH_WAYPOINT_MIN_DURATION_SEC,
-                False,
             ),
             (
                 _destination(*descent_arrival_position, yaw_deg),
                 CORRECTION_MOVE_MIN_DURATION_SEC,
-                False,
             ),
-            (pre_grasp, CORRECTION_MOVE_MIN_DURATION_SEC, False),
-            (grasp, FINAL_DESCENT_MIN_DURATION_SEC, True),
+            (pre_grasp, CORRECTION_MOVE_MIN_DURATION_SEC),
+            (grasp, FINAL_DESCENT_MIN_DURATION_SEC),
         ]
 
     center_trajectory = None
@@ -1082,23 +1086,24 @@ async def execute_pick(
         }
         if episode.nudge:
             start_command["nudge"] = dict(episode.nudge)
+        # A single full-episode stage keeps captures readable by older training
+        # scripts that reject an empty `stages` list. The first mark starts at
+        # frame zero and does not wait for a previous stage to reach 33 frames.
         with timer.phase("capture_start"):
-            await world.do_command(start_command)
+            await _start_episode_capture(world, start_command)
         capture_started = True
 
-    async def mark_stage(task: str) -> None:
-        if capture_started:
-            await world.do_command({"command": "mark_episode_stage", "task": task})
 
-    async def prepare_stage_trajectory(
+    async def prepare_trajectory(
         destination: PoseInFrame,
         constraints: Constraints,
         minimum_duration_sec: float,
-        *,
-        start_stage: str | None = None,
     ) -> tuple[list[Arm.TrajectoryPoint], float]:
-        """Plan with physics paused; returns the trajectory and the wall
-        seconds spent planning."""
+        """
+        Plan with physics paused; returns the trajectory and the wall seconds spent planning.
+        We do this so that policies don't learn pauses, and because non-terminal pauses create ambiguity
+        in the training set about what to do next from a position.
+        """
         plan_started = time.monotonic()
         if capture_started:
             await world.do_command({"command": "pause"})
@@ -1115,8 +1120,6 @@ async def execute_pick(
                 plan,
                 minimum_duration_sec,
             )
-            if start_stage is not None:
-                await mark_stage(start_stage)
         finally:
             if capture_started:
                 await world.do_command({"command": "play"})
@@ -1146,34 +1149,28 @@ async def execute_pick(
     capture = None
     try:
         if not config.grip_only:
-            # todo: construct the full prompt from these subprompts.
-            await mark_stage(stages[0])
             assert center_trajectory is not None
             await run_trajectory("center", center_trajectory, center_plan_sec)
             for index, destination in enumerate(center_waypoints[1:], start=1):
-                trajectory, plan_sec = await prepare_stage_trajectory(
+                trajectory, plan_sec = await prepare_trajectory(
                     destination,
                     CENTER_MOVE_CONSTRAINTS,
                     MIN_SUBTASK_DURATION_SEC / len(center_waypoints),
                 )
                 await run_trajectory(f"center-{index}", trajectory, plan_sec)
 
-            await mark_stage(stages[1])
-            for index, (destination, minimum_duration, starts_grasp) in enumerate(
+            for index, (destination, minimum_duration) in enumerate(
                 descent_waypoints
             ):
-                trajectory, plan_sec = await prepare_stage_trajectory(
+                trajectory, plan_sec = await prepare_trajectory(
                     destination,
                     LINEAR_PICK_CONSTRAINTS,
                     minimum_duration,
-                    start_stage=stages[2] if starts_grasp else None,
                 )
                 descent_trajectories.append(trajectory)
                 await run_trajectory(f"descent-{index}", trajectory, plan_sec)
 
         else:
-            # note: we don't really care about stages for grip-only mode, grip-only mode is for debugging grip issues.
-            await mark_stage("Lower the gripper to grasp the block")
             with timer.phase("grasp_move"):
                 await _move(
                     motion,
@@ -1181,7 +1178,6 @@ async def execute_pick(
                     grasp,
                     constraints=LINEAR_PICK_CONSTRAINTS,
                 )
-            await mark_stage("Close the gripper and lift the block")
         with timer.phase("grab"):
             grab_commanded = bool(await gripper.grab())
         holding_meta: Mapping[str, Any] = {}
@@ -1215,7 +1211,7 @@ async def execute_pick(
                 # 0.0, MIN_SUBTASK_DURATION_SEC - descent_duration
                 0.0, MIN_SUBTASK_DURATION_SEC
             )
-            ascent_trajectory, plan_sec = await prepare_stage_trajectory(
+            ascent_trajectory, plan_sec = await prepare_trajectory(
                 ascent_destination,
                 LINEAR_PICK_CONSTRAINTS,
                 ascent_minimum,
@@ -1264,20 +1260,19 @@ async def execute_pick(
                 pad_x_m, pad_y_m, release_z_m + config.approach_clearance_m, yaw_deg
             )
             place_moves = [
-                (carry, CENTER_MOVE_CONSTRAINTS, MIN_SUBTASK_DURATION_SEC, stages[3]),
+                (carry, CENTER_MOVE_CONSTRAINTS, MIN_SUBTASK_DURATION_SEC),
                 (
                     pre_release,
                     LINEAR_PICK_CONSTRAINTS,
                     APPROACH_WAYPOINT_MIN_DURATION_SEC,
-                    stages[4],
                 ),
-                (release, LINEAR_PICK_CONSTRAINTS, FINAL_DESCENT_MIN_DURATION_SEC, None),
+                (release, LINEAR_PICK_CONSTRAINTS, FINAL_DESCENT_MIN_DURATION_SEC),
             ]
-            for index, (destination, constraints, minimum_duration, stage) in enumerate(
+            for index, (destination, constraints, minimum_duration) in enumerate(
                 place_moves
             ):
-                trajectory, plan_sec = await prepare_stage_trajectory(
-                    destination, constraints, minimum_duration, start_stage=stage
+                trajectory, plan_sec = await prepare_trajectory(
+                    destination, constraints, minimum_duration
                 )
                 await run_trajectory(f"place-{index}", trajectory, plan_sec)
             with timer.phase("release"):
@@ -1287,11 +1282,10 @@ async def execute_pick(
                 )
                 # Let the block drop the release clearance and settle on the pad.
                 await _wait_sim_duration(world, PLACE_RELEASE_SETTLE_SEC)
-            trajectory, plan_sec = await prepare_stage_trajectory(
+            trajectory, plan_sec = await prepare_trajectory(
                 retreat,
                 LINEAR_PICK_CONSTRAINTS,
                 MIN_SUBTASK_DURATION_SEC,
-                start_stage=stages[5],
             )
             await run_trajectory("place-retreat", trajectory, plan_sec)
             with timer.phase("place_check"):
@@ -1305,8 +1299,6 @@ async def execute_pick(
                 placed_position, pad_position, config.prop_height_m
             )
         outcome = "success" if success else "failure"
-        if success and not config.grip_only:
-            await mark_stage(stages[-1])
 
     finally:
         if capture_started:
@@ -1317,7 +1309,7 @@ async def execute_pick(
             if episode is not None and episode.upload is not None:
                 stop_command["upload"] = dict(episode.upload)
             with timer.phase("capture_stop"):
-                capture = await world.do_command(stop_command)
+                capture = await _stop_episode_capture(world, stop_command)
 
     timing = timer.summary()
     timing["sim_elapsed_sec"] = (
@@ -1441,10 +1433,7 @@ def main() -> int:
     parser.add_argument(
         "--cosmos-output",
         action="store_true",
-        help=(
-            "also write CosmosWriter output under RUN_ROOT/cosmoswriter/EPISODE_ID "
-            "(requires --episode-output-dir)"
-        ),
+        help="also write CosmosWriter output under RUN_ROOT/cosmoswriter/EPISODE_ID (requires --episode-output-dir). Note this is slower; only enable if you plan to use it",
     )
     parser.add_argument("--episode-id", help="defaults to the zero-padded seed")
     parser.add_argument(
@@ -1465,6 +1454,12 @@ def main() -> int:
         help="disable all action noise and use the configured grasp height",
     )
     args = parser.parse_args()
+    if args.task.strip() == DEFAULT_SUBTASK_PROMPT:
+        LOGGER.warning(
+            "episode task %r matches the default subtask prompt; overall and "
+            "subtask prompts must be unique for conversion",
+            args.task,
+        )
     if args.gripper_settle_sec < 0:
         parser.error("--gripper-settle-sec must be non-negative")
     result = asyncio.run(_main(args))

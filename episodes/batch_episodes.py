@@ -495,13 +495,12 @@ async def generate_run(
                 episode_pick_config,
                 prop_name=target_prop,
                 distractor_prop=distractor_prop,
-                target_label=target_label,
             )
             episode_task = f"pick up the {target_label} block"
         if args.place_on:
             ((place_label, place_prop),) = args.place_on.items()
             episode_pick_config = replace(
-                episode_pick_config, place_prop=place_prop, place_label=place_label
+                episode_pick_config, place_prop=place_prop
             )
             episode_task = f"put the block on the {place_label} pad"
         final_dir, cosmos_episode_dir = _episode_paths(
@@ -858,7 +857,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cosmos-output",
         action="store_true",
-        help="also write episode-keyed CosmosWriter output beside episodes/",
+        help="also write episode-keyed CosmosWriter output beside episodes/. Note this is slower; only enable if you plan to use it",
     )
     parser.add_argument(
         "--upload-dataset-id",
