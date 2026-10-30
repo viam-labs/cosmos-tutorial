@@ -21,3 +21,6 @@ packages = ["src/cosmos_train", "model"]
 [tool.hatch.build.targets.sdist]
 include = ["src/cosmos_train", "model", "pyproject.toml", "README.md"]
 exclude = ["runs/", "models/", "datasets/"]
+
+[tool.ruff.lint]
+ignore = ["TRY004", "PLW1510"]

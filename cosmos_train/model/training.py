@@ -135,11 +135,7 @@ def _safe_extract(archive: Path, destination: Path) -> list[str]:
             name = info.filename
             parts = Path(name).parts
             if (
-                not parts
-                or parts[0] in ("", ".", "..")
-                or ".." in parts
-                or name.startswith("/")
-                or name.startswith("\\")
+                not parts or parts[0] in ("", ".", "..") or ".." in parts or name.startswith(("/", "\\"))
             ):
                 raise ValueError(f"{archive}: unsafe member {name!r}")
             # Zip encodes symlinks via the Unix mode bits in external_attr (create_system == 3).
