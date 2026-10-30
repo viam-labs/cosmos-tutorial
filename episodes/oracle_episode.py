@@ -1441,10 +1441,7 @@ def main() -> int:
     parser.add_argument(
         "--cosmos-output",
         action="store_true",
-        help=(
-            "also write CosmosWriter output under RUN_ROOT/cosmoswriter/EPISODE_ID "
-            "(requires --episode-output-dir)"
-        ),
+        help="also write CosmosWriter output under RUN_ROOT/cosmoswriter/EPISODE_ID (requires --episode-output-dir). Note this is slower; only enable if you plan to use it",
     )
     parser.add_argument("--episode-id", help="defaults to the zero-padded seed")
     parser.add_argument(

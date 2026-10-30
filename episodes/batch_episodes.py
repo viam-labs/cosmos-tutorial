@@ -858,7 +858,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cosmos-output",
         action="store_true",
-        help="also write episode-keyed CosmosWriter output beside episodes/",
+        help="also write episode-keyed CosmosWriter output beside episodes/. Note this is slower; only enable if you plan to use it",
     )
     parser.add_argument(
         "--upload-dataset-id",
