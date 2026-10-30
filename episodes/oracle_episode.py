@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import math
 import os
 import random
@@ -40,6 +41,8 @@ from viam.robot.client import RobotClient
 from viam.rpc.dial import Credentials, DialOptions
 from viam.services.motion import MotionClient
 
+
+LOGGER = logging.getLogger(__name__)
 HOME_JOINT_DEGREES = (0.0, 0.0, 90.0, 0.0, 90.0, 0.0)
 PICK_REGION_MIN_ARM_M = (0.25, -0.12, 0.0)
 PICK_REGION_MAX_ARM_M = (0.38, 0.12, 0.0)
@@ -90,6 +93,7 @@ CENTER_MOVE_CONSTRAINTS = Constraints(
 
 
 DEFAULT_PROMPT = "pick up the block"
+DEFAULT_SUBTASK_PROMPT = "base"
 
 
 # A second block placed for target selection stays at least this far (center to
@@ -303,7 +307,9 @@ async def _start_episode_capture(world: Any, command: Mapping[str, Any]) -> None
     try:
         await asyncio.shield(start_task)
         started = True
-        await world.do_command({"command": "mark_episode_stage", "task": "base"})
+        await world.do_command(
+            {"command": "mark_episode_stage", "task": DEFAULT_SUBTASK_PROMPT}
+        )
     except BaseException:
         if not started:
             try:
@@ -1448,6 +1454,12 @@ def main() -> int:
         help="disable all action noise and use the configured grasp height",
     )
     args = parser.parse_args()
+    if args.task.strip() == DEFAULT_SUBTASK_PROMPT:
+        LOGGER.warning(
+            "episode task %r matches the default subtask prompt; overall and "
+            "subtask prompts must be unique for conversion",
+            args.task,
+        )
     if args.gripper_settle_sec < 0:
         parser.error("--gripper-settle-sec must be non-negative")
     result = asyncio.run(_main(args))
