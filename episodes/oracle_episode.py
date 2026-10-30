@@ -1087,6 +1087,13 @@ async def execute_pick(
         capture_started = True
 
     async def mark_stage(task: str) -> None:
+        """
+        this gives name `task` to the next stage, creates a stage boundary, and
+        waits for a full 33 capture steps in the current stage (if not already elapsed).
+        don't call it while the simulation is paused (e.g. for planning), it will error.
+        only use this if you're planning to train subtask episodes. it introduces potential
+        boundary pauses that can worsen training.
+        """
         if capture_started:
             await world.do_command({"command": "mark_episode_stage", "task": task})
 
@@ -1097,8 +1104,11 @@ async def execute_pick(
         *,
         start_stage: str | None = None,
     ) -> tuple[list[Arm.TrajectoryPoint], float]:
-        """Plan with physics paused; returns the trajectory and the wall
-        seconds spent planning."""
+        """
+        Plan with physics paused; returns the trajectory and the wall seconds spent planning.
+        We do this so that policies don't learn pauses, and because non-terminal pauses create ambiguity
+        in the training set about what to do next from a position.
+        """
         plan_started = time.monotonic()
         if capture_started:
             await world.do_command({"command": "pause"})
