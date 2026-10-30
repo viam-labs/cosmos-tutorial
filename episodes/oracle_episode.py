@@ -297,16 +297,21 @@ async def _stop_episode_capture(
 
 
 async def _start_episode_capture(world: Any, command: Mapping[str, Any]) -> None:
-    """Start capture atomically with cancellation-safe rollback."""
+    """Start capture and its base stage with cancellation-safe rollback."""
     start_task = asyncio.create_task(world.do_command(dict(command)))
+    started = False
     try:
         await asyncio.shield(start_task)
-    except asyncio.CancelledError:
-        try:
-            await start_task
-        except BaseException:
-            pass
-        else:
+        started = True
+        await world.do_command({"command": "mark_episode_stage", "task": "base"})
+    except BaseException:
+        if not started:
+            try:
+                await start_task
+                started = True
+            except BaseException:
+                pass
+        if started:
             await _stop_episode_capture(
                 world, {"command": "stop_episode", "outcome": "incomplete"}
             )
@@ -1075,6 +1080,9 @@ async def execute_pick(
         }
         if episode.nudge:
             start_command["nudge"] = dict(episode.nudge)
+        # A single full-episode stage keeps captures readable by older training
+        # scripts that reject an empty `stages` list. The first mark starts at
+        # frame zero and does not wait for a previous stage to reach 33 frames.
         with timer.phase("capture_start"):
             await _start_episode_capture(world, start_command)
         capture_started = True
