@@ -284,6 +284,34 @@ def _episode_config(args: argparse.Namespace) -> EpisodeConfig | None:
         ),
     )
 
+async def _stop_episode_capture(
+    world: Any, command: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    """Finish capture even when the caller is being cancelled."""
+    stop_task = asyncio.create_task(world.do_command(dict(command)))
+    try:
+        return await asyncio.shield(stop_task)
+    except asyncio.CancelledError:
+        await stop_task
+        raise
+
+
+async def _start_episode_capture(world: Any, command: Mapping[str, Any]) -> None:
+    """Start capture atomically with cancellation-safe rollback."""
+    start_task = asyncio.create_task(world.do_command(dict(command)))
+    try:
+        await asyncio.shield(start_task)
+    except asyncio.CancelledError:
+        try:
+            await start_task
+        except BaseException:
+            pass
+        else:
+            await _stop_episode_capture(
+                world, {"command": "stop_episode", "outcome": "incomplete"}
+            )
+        raise
+
 
 def _yaw_degrees(rotation_wxyz: list[float]) -> float:
     w, x, y, z = (float(value) for value in rotation_wxyz)
@@ -1048,7 +1076,7 @@ async def execute_pick(
         if episode.nudge:
             start_command["nudge"] = dict(episode.nudge)
         with timer.phase("capture_start"):
-            await world.do_command(start_command)
+            await _start_episode_capture(world, start_command)
         capture_started = True
 
 
@@ -1267,7 +1295,7 @@ async def execute_pick(
             if episode is not None and episode.upload is not None:
                 stop_command["upload"] = dict(episode.upload)
             with timer.phase("capture_stop"):
-                capture = await world.do_command(stop_command)
+                capture = await _stop_episode_capture(world, stop_command)
 
     timing = timer.summary()
     timing["sim_elapsed_sec"] = (
